@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: p2p-deployment
+  labels:
+    app: p2p
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: p2p
+  template:
+    metadata:
+      labels:
+        app: p2p
+    spec:
+      containers:
+        - name: p2p
+          image: p2p:1.0-SNAPSHOT
+          ports:
+            - containerPort: 9999
