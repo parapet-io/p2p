@@ -12,7 +12,7 @@ crossPaths := false
 // This forbids including Scala related libraries into the dependency
 autoScalaLibrary := false
 
-mainClass in Compile := Some("io.parapet.p2p.MainApp")
+mainClass in Compile := Some("io.parapet.p2p.MulticastDiscovery")
 
 enablePlugins(JavaAppPackaging)
 enablePlugins(DockerPlugin)
@@ -29,5 +29,5 @@ dockerCommands ++= Seq(
   ),
   ExecCmd("RUN",
     "apt-get", "install", "nano"
-  ),
+  )
 )

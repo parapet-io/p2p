@@ -5,7 +5,7 @@ metadata:
   labels:
     app: p2p
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: p2p
@@ -17,5 +17,8 @@ spec:
       containers:
         - name: p2p
           image: p2p:1.0-SNAPSHOT
-          ports:
-            - containerPort: 9999
+          env:
+            - name: MULTICAST_ADDR
+              value: "230.0.0.0"
+            - name: MULTICAST_PORT
+              value: "4446"
