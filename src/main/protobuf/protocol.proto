@@ -1,0 +1,9 @@
+syntax = "proto2";
+package io.parapet.p2p;
+
+message Beacon {
+
+    required fixed32 version = 1;
+    required string peerId = 2;
+    required fixed32 port = 3;
+}
