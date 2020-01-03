@@ -7,3 +7,27 @@ message Beacon {
     required string peerId = 2;
     required fixed32 port = 3;
 }
+
+enum CmdType {
+    CONNECT = 0;
+    WHISPER = 1;
+    SHOUT = 2;
+    DELIVER = 3;
+    JOIN = 4;
+    LEFT = 5;
+}
+
+message Shout {
+    required string group = 1;
+    optional bytes data = 2;
+}
+
+message Whisper {
+    optional bytes data = 1;
+}
+
+message Command {
+    required string peerId = 1;
+    required CmdType cmdType = 2;
+    optional bytes data = 3;
+}

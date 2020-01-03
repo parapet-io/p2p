@@ -1,11 +1,14 @@
 package io.parapet.p2p;
 
+import java.util.UUID;
+
 public class Config {
 
     public final String multicastIp;
     public final int multicastPort;
     public final int nodePort;
     public final int protocolVer;
+    public final String nodeId = UUID.randomUUID().toString();
 
 
     public Config(Builder builder) {
