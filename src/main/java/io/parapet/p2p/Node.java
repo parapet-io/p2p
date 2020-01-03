@@ -3,32 +3,28 @@ package io.parapet.p2p;
 
 import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
-import org.zeromq.ZMQ.PollItem;
+import org.zeromq.ZThread;
 import scala.Tuple2;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.channels.Selector;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import static io.parapet.p2p.utils.Throwables.suppressError;
+
 public class Node implements Interface {
 
-    private final Udplib udplib;
-    private final int port;
-    private final int version;
-    private final String id;
-    private final ZContext ctx;
+    private ZContext ctx; //  Our context wrapper
+    private ZMQ.Socket pipe;
 
-    private static final int PING_INTERVAL = 1000; //  Once per second
 
     public Node(Config config) {
-        this.udplib = new Udplib(config.multicastIp, config.multicastPort);
-        this.port = config.nodePort;
-        this.version = config.protocolVer;
-        this.id = UUID.randomUUID().toString();
-        this.ctx = new ZContext();
+        ctx = new ZContext();
+        pipe = ZThread.fork(ctx, new InterfaceAgent(config));
     }
 
     @Override
@@ -36,57 +32,120 @@ public class Node implements Interface {
 
     }
 
-    void start() throws IOException {
-        Selector selector = Selector.open();
-        //  We use zmq_poll to wait for activity on the UDP socket, because
-        //  this function works on non-0MQ file handles. We send a beacon
-        //  once a second, and we collect and report beacons that come in
-        //  from other nodes:
-        PollItem[] pollItems = new PollItem[]{new PollItem(udplib.getSocket(), ZMQ.Poller.POLLIN)};
-        //  Send first ping right away
-        long pingAt = System.currentTimeMillis();
+    @Override
+    public String receive() {
+        return pipe.recvStr();
+    }
 
-        while (!Thread.currentThread().isInterrupted()) {
-            long timeout = pingAt - System.currentTimeMillis();
-            if (timeout < 0)
-                timeout = 0;
-            if (ZMQ.poll(selector, pollItems, 1, timeout) == -1)
-                break;              //  Interrupted
+    private static class InterfaceAgent implements ZThread.IAttachedRunnable {
+        private Udplib udplib;
+        private int port;
+        private int version;
+        private String id;
+        private ZMQ.Socket pipe;
+        private String multicastIp;
+        private int multicastPort;
+        private Map<String, Peer> peers = new HashMap<>();
 
-            //  Someone answered our ping
-            if (pollItems[0].isReadable()) {
-                Optional<Tuple2<Protocol.Beacon, SocketAddress>> beaconOpt = udplib.receive();
-                assert beaconOpt.isPresent();
+        private static final int PING_INTERVAL = 1000; //  Once per second
 
-                if (!id.equals(beaconOpt.get()._1.getPeerId())) {
-                    Tuple2<Protocol.Beacon, SocketAddress> beacon = beaconOpt.get();
-                    InetSocketAddress sourceAddr = (InetSocketAddress) beacon._2;
+        InterfaceAgent(Config config) {
+            this.port = config.nodePort;
+            this.version = config.protocolVer;
+            this.id = UUID.randomUUID().toString();
+            this.multicastIp = config.multicastIp;
+            this.multicastPort = config.multicastPort;
+        }
+
+        void init(ZMQ.Socket pipe) {
+            //  todo create ROUTER socket to receive messages from peers
+            this.pipe = pipe;
+            this.udplib = new Udplib(multicastIp, multicastPort);
+        }
+
+        private void handleBeacon() {
+            Optional<Tuple2<Protocol.Beacon, SocketAddress>> beaconOpt = udplib.receive();
+            assert beaconOpt.isPresent();
+
+            if (!id.equals(beaconOpt.get()._1.getPeerId())) {
+                Tuple2<Protocol.Beacon, SocketAddress> beacon = beaconOpt.get();
+                InetSocketAddress sourceAddr = (InetSocketAddress) beacon._2;
+                if (addPeer(sourceAddr.getHostString(), beacon._1)) {
+                    // todo notify frontend
                     System.out.printf("Found peer %s, %s:%d/%d\n", beacon._1.getPeerId(),
                             sourceAddr.getHostString(), sourceAddr.getPort(), beacon._1.getPort());
                 }
-
-            }
-            if (System.currentTimeMillis() >= pingAt) {
-                //  Broadcast our beacon
-                System.out.println("Pinging peers…");
-                udplib.send(Protocol.Beacon.newBuilder().setVersion(version).setPort(port).setPeerId(id).build());
-                pingAt = System.currentTimeMillis() + PING_INTERVAL;
             }
         }
-        udplib.close();
-        ctx.close();
-    }
+
+        private boolean addPeer(String peerIp, Protocol.Beacon beacon) {
+            if (!peers.containsKey(beacon.getPeerId())) {
+                Peer peer = new Peer(beacon.getPeerId(), peerIp, beacon.getPort());
+                // todo connect
+                peers.put(peer.id, peer);
+                return true;
+            } //todo else update expiration date
+            return false;
+        }
 
 
-    static class Peer {
-        final String id;
-        final String ip;
-        final int port;
+        private void handleControlMsg() {
+            // read from `pipe`
+        }
 
-        Peer(String id, String ip, int port) {
-            this.id = id;
-            this.ip = ip;
-            this.port = port;
+        @Override
+        public void run(Object[] args, ZContext ctx, ZMQ.Socket pipe) {
+            Selector selector = null;
+            try {
+                init(pipe);
+                selector = Selector.open();
+                // Send first beacon immediately
+                long pingAt = System.currentTimeMillis();
+                ZMQ.PollItem[] pollItems = new ZMQ.PollItem[]{
+                        udplib.createPollItem(),
+                        new ZMQ.PollItem(pipe, ZMQ.Poller.POLLIN),
+
+                };
+
+                while (!Thread.currentThread().isInterrupted()) {
+                    long timeout = pingAt - System.currentTimeMillis();
+                    if (timeout < 0)
+                        timeout = 0;
+
+                    if (ZMQ.poll(selector, pollItems, 2, timeout) == -1)
+                        break;              //  Interrupted
+
+                    //  If we had input on the UDP socket, go process that
+                    if (pollItems[0].isReadable())
+                        handleBeacon();
+
+                    // messages sent by frontend via `pipe`
+                    if (pollItems[1].isReadable())
+                        handleControlMsg();
+
+                    if (System.currentTimeMillis() >= pingAt) {
+                        //  Broadcast our beacon
+                        System.out.println("Pinging peers…");
+                        udplib.send(Protocol.Beacon.newBuilder()
+                                .setVersion(version)
+                                .setPort(port)
+                                .setPeerId(id)
+                                .build());
+                        pingAt = System.currentTimeMillis() + PING_INTERVAL;
+                    }
+
+                    // todo check peers
+                }
+
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                if (udplib != null) udplib.close();
+                if (selector != null) suppressError(selector::close);
+
+            }
+
         }
     }
 }

@@ -4,6 +4,8 @@ public interface Interface {
 
     void send(String peerId, byte[] data);
 
-    //todo void sendToGroup(String group, byte[] data);
+    String receive();
+
+    //void sendToGroup(String group, byte[] data);
 
 }

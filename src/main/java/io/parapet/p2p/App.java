@@ -12,6 +12,8 @@ public class App {
                 .nodePort(new ServerSocket(0).getLocalPort()).build();
 
 
-        new Node(config).start();
+        Node node = new Node(config);
+
+        node.receive();
     }
 }

@@ -2,6 +2,7 @@ package io.parapet.p2p;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.parapet.p2p.utils.Proto;
+import org.zeromq.ZMQ;
 import scala.Tuple2;
 
 import java.io.IOException;
@@ -10,6 +11,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.MembershipKey;
 import java.util.Optional;
+
+import static io.parapet.p2p.utils.Throwables.suppressError;
 
 public class Udplib {
 
@@ -32,8 +35,8 @@ public class Udplib {
         }
     }
 
-    public DatagramChannel getSocket() {
-        return dc;
+    public ZMQ.PollItem createPollItem() {
+        return new ZMQ.PollItem(dc, ZMQ.Poller.POLLIN);
     }
 
     public void send(Protocol.Beacon beacon) {
@@ -91,19 +94,6 @@ public class Udplib {
     public void close() {
         if (dc != null) {
             suppressError(() -> dc.close());
-        }
-    }
-
-
-    interface Thunk {
-        void run() throws Exception;
-    }
-
-    void suppressError(Thunk s) {
-        try {
-            s.run();
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
