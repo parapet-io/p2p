@@ -9,13 +9,14 @@ public class Config {
     public final int nodePort;
     public final int protocolVer;
     public final String nodeId = UUID.randomUUID().toString();
-
+    public final int maxSocketBindRetries;
 
     public Config(Builder builder) {
         this.multicastIp = builder.multicastIp;
         this.multicastPort = builder.multicastPort;
         this.nodePort = builder.nodePort;
         this.protocolVer = builder.protocolVer;
+        this.maxSocketBindRetries = builder.maxSocketBindRetries;
     }
 
     static class Builder {
@@ -23,6 +24,7 @@ public class Config {
         private int multicastPort;
         private int nodePort;
         private int protocolVer;
+        private int maxSocketBindRetries = 100;
 
         public Builder multicastIp(String multicastIp) {
             this.multicastIp = multicastIp;
@@ -41,6 +43,11 @@ public class Config {
 
         public Builder protocolVer(int protocolVer) {
             this.protocolVer = protocolVer;
+            return this;
+        }
+
+        public Builder maxSocketBindRetries(int value) {
+            this.maxSocketBindRetries = value;
             return this;
         }
 

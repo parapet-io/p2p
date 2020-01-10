@@ -23,9 +23,9 @@ public class Udplib {
     private InetSocketAddress target;
     private ByteBuffer _buf = ByteBuffer.allocate(Proto.BEACON_SIZE);
 
-    public Udplib(String multicastIp, int multicastPort) {
-        this.multicastIp = multicastIp;
-        this.multicastPort = multicastPort;
+    public Udplib(InetAddress address) {
+        this.multicastIp = address.ip;
+        this.multicastPort = address.port;
 
         try {
             init();
@@ -85,7 +85,7 @@ public class Udplib {
                 .bind(new InetSocketAddress(multicastPort))
                 .setOption(StandardSocketOptions.IP_MULTICAST_IF, ni);
 
-        InetAddress group = InetAddress.getByName(multicastIp);
+        java.net.InetAddress group = java.net.InetAddress.getByName(multicastIp);
         dc.configureBlocking(false);
         membershipKey = dc.join(group, ni);
         target = new InetSocketAddress(group, multicastPort);

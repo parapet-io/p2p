@@ -13,7 +13,7 @@ enum CmdType {
     WHISPER = 1;
     SHOUT = 2;
     DELIVER = 3;
-    JOIN = 4;
+    JOINED = 4;
     LEFT = 5;
 }
 

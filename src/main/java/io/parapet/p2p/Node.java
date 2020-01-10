@@ -12,7 +12,6 @@ import java.nio.channels.Selector;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Random;
 
 import static io.parapet.p2p.Protocol.CmdType.SHOUT;
 import static io.parapet.p2p.utils.Throwables.suppressError;
@@ -69,9 +68,8 @@ public class Node implements Interface {
         private String id;
         private ZMQ.Socket pipe;
         private ZContext ctx;
-        private String multicastIp;
-        private int multicastPort;
-        private Map<String, Peer> peers = new HashMap<>();
+        private InetAddress multicastAddress;
+        private Map<String, Peer> peers = new HashMap<>(); // todo concurrent hash map
 
         private ZMQ.Socket router;
 
@@ -81,53 +79,40 @@ public class Node implements Interface {
             this.port = config.nodePort;
             this.version = config.protocolVer;
             this.id = config.nodeId;
-            this.multicastIp = config.multicastIp;
-            this.multicastPort = config.multicastPort;
+            this.multicastAddress = new InetAddress(config.multicastIp, config.multicastPort);
         }
 
         void init(ZMQ.Socket pipe, ZContext ctx) {
-            //  todo create ROUTER socket to receive messages from peers
             this.pipe = pipe;
             this.ctx = ctx;
-            this.udplib = new Udplib(multicastIp, multicastPort);
+            this.udplib = new Udplib(multicastAddress);
             this.router = ctx.createSocket(SocketType.ROUTER);
             bindRouter();
             System.out.println("node created with id = " + id + ", port = " + port);
         }
 
+        // todo add custom maxRetries
+        // ports range must be configurable
         private void bindRouter() {
-            int port = getRandomNumberInRange(5555, 6666);
-            try {
-                this.router.bind(String.format("tcp://*:%d", port));
-                this.port = port;
-            } catch (ZMQException e) {
-                bindRouter();
-            }
+            router.bindToRandomPort("tcp://*", 5555, 6666);
         }
-
-        private static int getRandomNumberInRange(int min, int max) {
-            if (min >= max) {
-                throw new IllegalArgumentException("max must be greater than min");
-            }
-            Random r = new Random();
-            return r.nextInt((max - min) + 1) + min;
-        }
-
 
         private void handleBeacon() {
             Optional<Tuple2<Protocol.Beacon, SocketAddress>> beaconOpt = udplib.receive();
             if (!beaconOpt.isPresent()) {
-                System.out.println("WARN: udp socket is empty");
+                //  might happen sometimes
                 return;
             }
 
-            if (!id.equals(beaconOpt.get()._1.getPeerId())) {
-                Tuple2<Protocol.Beacon, SocketAddress> beacon = beaconOpt.get();
-                InetSocketAddress sourceAddr = (InetSocketAddress) beacon._2;
-                if (addPeer(sourceAddr.getHostString(), beacon._1)) {
+            Tuple2<Protocol.Beacon, SocketAddress> beaconPair = beaconOpt.get();
+            Protocol.Beacon beacon = beaconPair._1;
+            InetSocketAddress peerAddr = (InetSocketAddress) beaconPair._2;
+
+            if (!id.equals(beacon.getPeerId())) {
+                if (addPeer(peerAddr.getHostString(), beacon)) {
                     // todo notify frontend
-                    System.out.printf("Found peer %s, %s:%d/%d\n", beacon._1.getPeerId(),
-                            sourceAddr.getHostString(), sourceAddr.getPort(), beacon._1.getPort());
+                    System.out.printf("Found peer %s, %s:%d/%d\n", beacon.getPeerId(),
+                            peerAddr.getHostString(), peerAddr.getPort(), beacon.getPort());
                 } else {
                     System.out.println("peer exists");
                 }
@@ -137,12 +122,12 @@ public class Node implements Interface {
         private boolean addPeer(String peerIp, Protocol.Beacon beacon) {
             if (!peers.containsKey(beacon.getPeerId())) {
                 Peer peer = new Peer(beacon.getPeerId(), peerIp, beacon.getPort());
-                // todo connect
                 peers.put(peer.id, peer);
                 peer.connect(id, ctx);
+                // send hello to the peer
                 sendJoin(peer.id);
                 return true;
-            } //todo else update expiration date
+            } //todo else update expiration date if peer exists
             return false;
         }
 
@@ -188,19 +173,21 @@ public class Node implements Interface {
             }
         }
 
+        // notifies the client/frontend that new peer has joined
+        // todo do we need ip:port ?
         private void sendJoin(String peerId) {
             pipe.send(Protocol.Command.newBuilder()
                     .setPeerId(peerId)
-                    .setCmdType(Protocol.CmdType.JOIN)
+                    .setCmdType(Protocol.CmdType.JOINED)
                     .build().toByteArray());
         }
 
         public void sendToPeer(String peerId, ByteString data) {
             if (!peers.containsKey(peerId)) {
-                System.out.println(String.format("Peer[id=%s] doesn't exist", peerId));
+                System.out.println(String.format("Error: peer[id=%s] doesn't exist", peerId));
             } else {
                 byte[] msg = Protocol.Command.newBuilder()
-                        .setPeerId(id)
+                        .setPeerId(id) // sender id is this node
                         .setCmdType(Protocol.CmdType.DELIVER)
                         .setData(data)
                         .build().toByteArray();
