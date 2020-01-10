@@ -8,25 +8,37 @@ import scala.Tuple2;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.net.UnknownHostException;
 import java.nio.channels.Selector;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 
-import static io.parapet.p2p.Protocol.CmdType.SHOUT;
+import static io.parapet.p2p.Protocol.CmdType.*;
 import static io.parapet.p2p.utils.Throwables.suppressError;
 
 public class Node implements Interface {
 
-    private ZContext ctx; //  Our context wrapper
-    private ZMQ.Socket pipe;
-    private String id;
+    private final ZContext ctx; //  Our context wrapper
+    private final ZMQ.Socket pipe;
+    private final String id;
+    private final InterfaceAgent agent;
 
 
     public Node(Config config) {
         ctx = new ZContext();
-        pipe = ZThread.fork(ctx, new InterfaceAgent(config));
+        agent = new InterfaceAgent(config);
+        pipe = ZThread.fork(ctx, agent);
         id = config.nodeId;
+    }
+
+    public Peer getPeer(String id) {
+        return agent.peers.get(id);
+    }
+
+    public String getInfo() {
+        return String.format("Node[id=%s, ip=%s, port=%d]", id, agent.selfIp, agent.selfPort);
     }
 
     @Override
@@ -63,22 +75,21 @@ public class Node implements Interface {
 
     private static class InterfaceAgent implements ZThread.IAttachedRunnable {
         private Udplib udplib;
-        private int port;
+        private int selfPort = -1;
         private int version;
-        private String id;
+        private String selfId;
+        private String selfIp;
         private ZMQ.Socket pipe;
         private ZContext ctx;
         private InetAddress multicastAddress;
-        private Map<String, Peer> peers = new HashMap<>(); // todo concurrent hash map
-
+        private final Map<String, Peer> peers = new HashMap<>();
         private ZMQ.Socket router;
 
         private static final int PING_INTERVAL = 1000; //  Once per second
 
         InterfaceAgent(Config config) {
-            this.port = config.nodePort;
             this.version = config.protocolVer;
-            this.id = config.nodeId;
+            this.selfId = config.nodeId;
             this.multicastAddress = new InetAddress(config.multicastIp, config.multicastPort);
         }
 
@@ -87,14 +98,15 @@ public class Node implements Interface {
             this.ctx = ctx;
             this.udplib = new Udplib(multicastAddress);
             this.router = ctx.createSocket(SocketType.ROUTER);
-            bindRouter();
-            System.out.println("node created with id = " + id + ", port = " + port);
+            this.selfPort = bindRouter();
+            this.selfIp = getSelfIP();
+            System.out.println(String.format("node created [id=%s, ip=%s, port=%d]", selfId, selfIp, selfPort));
         }
 
         // todo add custom maxRetries
         // ports range must be configurable
-        private void bindRouter() {
-            router.bindToRandomPort("tcp://*", 5555, 6666);
+        private int bindRouter() {
+            return router.bindToRandomPort("tcp://*", 5555, 6666);
         }
 
         private void handleBeacon() {
@@ -108,32 +120,29 @@ public class Node implements Interface {
             Protocol.Beacon beacon = beaconPair._1;
             InetSocketAddress peerAddr = (InetSocketAddress) beaconPair._2;
 
-            if (!id.equals(beacon.getPeerId())) {
-                if (addPeer(peerAddr.getHostString(), beacon)) {
-                    // todo notify frontend
-                    System.out.printf("Found peer %s, %s:%d/%d\n", beacon.getPeerId(),
-                            peerAddr.getHostString(), peerAddr.getPort(), beacon.getPort());
-                } else {
-                    System.out.println("peer exists");
-                }
+            if (!selfId.equals(beacon.getPeerId())) {
+                addPeer(beacon.getPeerId(), peerAddr.getHostString(), beacon.getPort());
             }
         }
 
-        private boolean addPeer(String peerIp, Protocol.Beacon beacon) {
-            if (!peers.containsKey(beacon.getPeerId())) {
-                Peer peer = new Peer(beacon.getPeerId(), peerIp, beacon.getPort());
-                peers.put(peer.id, peer);
-                peer.connect(id, ctx);
-                // send hello to the peer
-                sendJoin(peer.id);
+        private boolean addPeer(String id, String ip, int port) {
+            if (!peers.containsKey(id)) {
+                Peer peer = new Peer(id, ip, port);
+                peer.connect(selfId, ctx);
+                peers.put(id, peer);
+                System.out.printf("Connected to peer %s\n", peer);
+                sendToPeer(id, HELLO, Protocol.Hello.newBuilder()
+                        .setPort(selfPort).setIp(selfIp).build().toByteString());
+                sendJoin(id);
                 return true;
-            } //todo else update expiration date if peer exists
-            return false;
+            } else {
+                //todo update peer expireAt
+                peers.get(id).updateExpire();
+                return false;
+            }
         }
 
-
         private void handleControlMsg() {
-            System.out.println("handleControlMsg");
             try {
                 Protocol.Command cmd = Protocol.Command.parseFrom(pipe.recv());
                 switch (cmd.getCmdType()) {
@@ -142,7 +151,7 @@ public class Node implements Interface {
                         if (shout.getGroup().isEmpty()) {
                             // send to all peers
                             for (Peer peer : peers.values()) {
-                                sendToPeer(peer.id, shout.getData());
+                                sendToPeer(peer.id, DELIVER, shout.getData());
                             }
                         }
                         break;
@@ -152,20 +161,27 @@ public class Node implements Interface {
                 e.printStackTrace();
             }
 
-
         }
 
         private void handleCmd() {
-            System.out.println("handleCmd");
             ZMsg msg = ZMsg.recvMsg(router);
             msg.popString(); // identity
 
             try {
                 Protocol.Command cmd = Protocol.Command.parseFrom(msg.pop().getData());
                 switch (cmd.getCmdType()) {
+                    case HELLO:
+                        Protocol.Hello hello = Protocol.Hello.parseFrom(cmd.getData());
+                        System.out.println("received hello from: " + hello.getIp());
+                        addPeer(cmd.getPeerId(), hello.getIp(), hello.getPort());
+                        break;
                     case DELIVER:
+                        if (!peers.containsKey(cmd.getPeerId())) {
+                            throw new IllegalStateException(String.format("peer with id=%s doesn't exist", cmd.getPeerId()));
+                        }
                         pipe.send(cmd.toByteArray());
                         break;
+
                 }
 
             } catch (InvalidProtocolBufferException e) {
@@ -182,13 +198,20 @@ public class Node implements Interface {
                     .build().toByteArray());
         }
 
-        public void sendToPeer(String peerId, ByteString data) {
+        private void sendLeft(String peerId) {
+            pipe.send(Protocol.Command.newBuilder()
+                    .setPeerId(peerId)
+                    .setCmdType(Protocol.CmdType.LEFT)
+                    .build().toByteArray());
+        }
+
+        private void sendToPeer(String peerId, Protocol.CmdType cmdType, ByteString data) {
             if (!peers.containsKey(peerId)) {
                 System.out.println(String.format("Error: peer[id=%s] doesn't exist", peerId));
             } else {
                 byte[] msg = Protocol.Command.newBuilder()
-                        .setPeerId(id) // sender id is this node
-                        .setCmdType(Protocol.CmdType.DELIVER)
+                        .setPeerId(selfId)
+                        .setCmdType(cmdType)
                         .setData(data)
                         .build().toByteArray();
                 peers.get(peerId).socket.send(msg);
@@ -235,13 +258,15 @@ public class Node implements Interface {
                         System.out.println("Pinging peers…");
                         udplib.send(Protocol.Beacon.newBuilder()
                                 .setVersion(version)
-                                .setPort(port)
-                                .setPeerId(id)
+                                .setPort(selfPort)
+                                .setPeerId(selfId)
                                 .build());
                         pingAt = System.currentTimeMillis() + PING_INTERVAL;
                     }
 
-                    // todo check peers
+                    //  Delete and report any expired peers
+                    reapPeers();
+
                 }
 
 
@@ -254,5 +279,28 @@ public class Node implements Interface {
             }
 
         }
+
+        private void reapPeers() {
+            Iterator<String> iterator = peers.keySet().iterator();
+
+            while (iterator.hasNext()) {
+                String peerId = iterator.next();
+                if (System.currentTimeMillis() >= peers.get(peerId).expiresAt) {
+                    sendLeft(peerId);
+                    iterator.remove();
+                }
+            }
+        }
+    }
+
+
+    private static String getSelfIP() {
+        java.net.InetAddress inetAddress;
+        try {
+            inetAddress = java.net.InetAddress.getLocalHost();
+        } catch (UnknownHostException e) {
+            throw new RuntimeException("failed to retrieve self ip", e);
+        }
+        return inetAddress.getHostAddress();
     }
 }

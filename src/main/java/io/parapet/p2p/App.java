@@ -11,31 +11,34 @@ public class App {
                 .multicastPort(4446)
                 .nodePort(new ServerSocket(0).getLocalPort()).build();
 
-
         Node node = new Node(config);
-
-        Protocol.Command command = node.receive();
-
-        System.out.println(command.getCmdType());
-        System.out.println(command.getPeerId());
-
-        node.send("PING".getBytes());
 
         while (true) {
             Protocol.Command cmd = node.receive();
-            if (cmd.getCmdType() == Protocol.CmdType.DELIVER) {
-                String data = new String(cmd.getData().toByteArray());
-                System.out.println(String.format("RECEIVED, data: %s, peerId: %s", data, cmd.getPeerId()));
-                if ("PING".equals(data)) {
-                    node.send("PONG".getBytes());
-                } else if ("PONG".equals(data)) {
+            Peer peer = node.getPeer(cmd.getPeerId());
+            switch (cmd.getCmdType()) {
+                case JOINED:
+                    System.out.println(String.format("peer %s has joined", peer));
                     node.send("PING".getBytes());
-                } else {
-                    System.out.println("unknown message");
-                }
+                    break;
+                case DELIVER:
+                    String data = new String(cmd.getData().toByteArray());
+
+                    System.out.println(String.format("received '%s' from: %s", data, peer));
+                    if ("PING".equals(data)) {
+                        node.send("PONG".getBytes());
+                    } else if ("PONG".equals(data)) {
+                        node.send("PING".getBytes());
+                    } else {
+                        System.out.println("unknown message");
+                    }
+                    break;
+                case LEFT:
+                    System.out.println(String.format("peer with id=%s left", cmd.getPeerId()));
+                    break;
             }
 
-            Thread.sleep(1000);
+            Thread.sleep(3000);
         }
     }
 }

@@ -9,12 +9,18 @@ message Beacon {
 }
 
 enum CmdType {
-    CONNECT = 0;
+    HELLO = 0;
     WHISPER = 1;
     SHOUT = 2;
     DELIVER = 3;
     JOINED = 4;
     LEFT = 5;
+}
+
+
+message Hello {
+    required string ip = 1;
+    required fixed32 port = 2;
 }
 
 message Shout {
@@ -25,6 +31,7 @@ message Shout {
 message Whisper {
     optional bytes data = 1;
 }
+
 
 message Command {
     required string peerId = 1;

@@ -8,12 +8,16 @@ public class Peer {
     final String id;
     final String ip;
     final int port;
+    private static final int PEER_EXPIRY = 5000;
+    public long expiresAt;
     public ZMQ.Socket socket;
+
 
     public Peer(String id, String ip, int port) {
         this.id = id;
         this.ip = ip;
         this.port = port;
+        updateExpire();
     }
 
     public void connect(String identity, ZContext ctx) {
@@ -21,6 +25,16 @@ public class Peer {
         socket.setIdentity(identity.getBytes());
         socket.connect(String.format("tcp://%s:%d", ip, port));
     }
+
+    public void updateExpire() {
+        expiresAt = System.currentTimeMillis() + PEER_EXPIRY;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("[id=%s,ip=%s,port=%d]", id, ip, port);
+    }
+
 
     // todo builder
 }
