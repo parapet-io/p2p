@@ -19,7 +19,11 @@ public class Config {
         this.maxSocketBindRetries = builder.maxSocketBindRetries;
     }
 
-    static class Builder {
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static class Builder {
         private String multicastIp;
         private int multicastPort;
         private int nodePort;

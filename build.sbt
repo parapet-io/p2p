@@ -2,9 +2,9 @@ import com.typesafe.sbt.packager.docker.{Cmd, ExecCmd}
 
 name := "p2p"
 organization := "io.parapet"
-version := "1.0-SNAPSHOT"
+version := "1.0.0-SNAPSHOT"
 description := "A Framework for Distributed Computing"
-
+scalaVersion := "2.12.8"
 // Enables publishing to maven repo
 publishMavenStyle := true
 // Do not append Scala versions to the generated artifacts
