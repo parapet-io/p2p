@@ -6,7 +6,7 @@ import java.net.ServerSocket;
 public class App {
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        Config config = new Config.Builder().multicastIp("230.0.0.0")
+        Config config = Config.builder().multicastIp("230.0.0.0")
                 .protocolVer(1)
                 .multicastPort(4446)
                 .nodePort(new ServerSocket(0).getLocalPort()).build();

@@ -10,10 +10,11 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.Selector;
-import java.util.HashMap;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static io.parapet.p2p.Protocol.CmdType.*;
 import static io.parapet.p2p.utils.Throwables.suppressError;
@@ -25,7 +26,6 @@ public class Node implements Interface {
     private final String id;
     private final InterfaceAgent agent;
 
-
     public Node(Config config) {
         ctx = new ZContext();
         agent = new InterfaceAgent(config);
@@ -33,8 +33,17 @@ public class Node implements Interface {
         id = config.nodeId;
     }
 
-    public Peer getPeer(String id) {
-        return agent.peers.get(id);
+    public Peer getPeer(String uuid) {
+        return agent.peers.get(uuid);
+    }
+
+    public Collection<Peer> getPeers() {
+        return agent.peers.values();
+    }
+
+
+    public String getId() {
+        return id;
     }
 
     public String getInfo() {
@@ -43,7 +52,19 @@ public class Node implements Interface {
 
     @Override
     public void send(String peerId, byte[] data) {
+        ByteString msg =
+                Protocol.Whisper.newBuilder()
+                        .setPeerId(peerId)
+                        .setData(ByteString.copyFrom(data))
+                        .build().toByteString();
 
+        byte[] cmd = Protocol.Command.newBuilder()
+                .setPeerId(id)
+                .setCmdType(WHISPER)
+                .setData(msg)
+                .build().toByteArray();
+
+        pipe.send(cmd);
     }
 
     @Override
@@ -82,7 +103,7 @@ public class Node implements Interface {
         private ZMQ.Socket pipe;
         private ZContext ctx;
         private InetAddress multicastAddress;
-        private final Map<String, Peer> peers = new HashMap<>();
+        private final Map<String, Peer> peers = new ConcurrentHashMap<>();
         private ZMQ.Socket router;
 
         private static final int PING_INTERVAL = 1000; //  Once per second
@@ -155,6 +176,10 @@ public class Node implements Interface {
                             }
                         }
                         break;
+                    case WHISPER:
+                        Protocol.Whisper whisper = Protocol.Whisper.parseFrom(cmd.getData());
+                        Peer peer = peers.get(whisper.getPeerId());
+                        sendToPeer(peer.id, DELIVER, whisper.getData());
                 }
 
             } catch (InvalidProtocolBufferException e) {
@@ -255,7 +280,7 @@ public class Node implements Interface {
 
                     if (System.currentTimeMillis() >= pingAt) {
                         //  Broadcast our beacon
-                        System.out.println("Pinging peers…");
+                        // System.out.println("Pinging peers…");
                         udplib.send(Protocol.Beacon.newBuilder()
                                 .setVersion(version)
                                 .setPort(selfPort)

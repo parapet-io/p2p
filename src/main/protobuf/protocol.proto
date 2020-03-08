@@ -29,7 +29,8 @@ message Shout {
 }
 
 message Whisper {
-    optional bytes data = 1;
+    required string peerId = 1;
+    optional bytes data = 2;
 }
 
 

@@ -8,10 +8,11 @@ public class Config {
     public final int multicastPort;
     public final int nodePort;
     public final int protocolVer;
-    public final String nodeId = UUID.randomUUID().toString();
+    public final String nodeId;
     public final int maxSocketBindRetries;
 
     public Config(Builder builder) {
+        this.nodeId = builder.nodeId;
         this.multicastIp = builder.multicastIp;
         this.multicastPort = builder.multicastPort;
         this.nodePort = builder.nodePort;
@@ -29,6 +30,12 @@ public class Config {
         private int nodePort;
         private int protocolVer;
         private int maxSocketBindRetries = 100;
+        private String nodeId = UUID.randomUUID().toString();
+
+        public Builder nodeId(String nodeId) {
+            this.nodeId = nodeId;
+            return this;
+        }
 
         public Builder multicastIp(String multicastIp) {
             this.multicastIp = multicastIp;

@@ -9,8 +9,8 @@ public class Peer {
     final String ip;
     final int port;
     private static final int PEER_EXPIRY = 5000;
-    public long expiresAt;
-    public ZMQ.Socket socket;
+    long expiresAt;
+    ZMQ.Socket socket;
 
 
     public Peer(String id, String ip, int port) {
