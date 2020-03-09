@@ -50,6 +50,13 @@ public class Node implements Interface {
         return String.format("Node[id=%s, ip=%s, port=%d]", id, agent.selfIp, agent.selfPort);
     }
 
+    public void stop() {
+        try {
+            ctx.close();
+        } catch (Exception ignored) {
+        }
+    }
+
     @Override
     public void send(String peerId, byte[] data) {
         ByteString msg =
