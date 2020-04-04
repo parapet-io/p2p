@@ -128,7 +128,7 @@ public class Node implements Interface {
             this.router = ctx.createSocket(SocketType.ROUTER);
             this.selfPort = bindRouter();
             this.selfIp = getSelfIP();
-            System.out.println(String.format("node created [id=%s, ip=%s, port=%d]", selfId, selfIp, selfPort));
+            // System.out.println(String.format("node created [id=%s, ip=%s, port=%d]", selfId, selfIp, selfPort));
         }
 
         // todo add custom maxRetries
@@ -158,7 +158,7 @@ public class Node implements Interface {
                 Peer peer = new Peer(id, ip, port);
                 peer.connect(selfId, ctx);
                 peers.put(id, peer);
-                System.out.printf("Connected to peer %s\n", peer);
+                // System.out.printf("Connected to peer %s\n", peer);
                 sendToPeer(id, HELLO, Protocol.Hello.newBuilder()
                         .setPort(selfPort).setIp(selfIp).build().toByteString());
                 sendJoin(id);
@@ -204,7 +204,7 @@ public class Node implements Interface {
                 switch (cmd.getCmdType()) {
                     case HELLO:
                         Protocol.Hello hello = Protocol.Hello.parseFrom(cmd.getData());
-                        System.out.println("received hello from: " + hello.getIp());
+                        // System.out.println("received hello from: " + hello.getIp());
                         addPeer(cmd.getPeerId(), hello.getIp(), hello.getPort());
                         break;
                     case DELIVER:
@@ -239,7 +239,7 @@ public class Node implements Interface {
 
         private void sendToPeer(String peerId, Protocol.CmdType cmdType, ByteString data) {
             if (!peers.containsKey(peerId)) {
-                System.out.println(String.format("Error: peer[id=%s] doesn't exist", peerId));
+                throw new IllegalStateException(String.format("Error: peer[id=%s] doesn't exist", peerId));
             } else {
                 byte[] msg = Protocol.Command.newBuilder()
                         .setPeerId(selfId)

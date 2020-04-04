@@ -45,11 +45,11 @@ public class MulticastDiscovery {
                             packet.getData(), 0, packet.getLength());
 
                     if (!packet.getAddress().getHostAddress().equals(selfIp)) {
-                        System.out.println(String.format("[%s] received '%s' from %s:%d",
+                        /*System.out.println(String.format("[%s] received '%s' from %s:%d",
                                 selfIp,
                                 received,
                                 packet.getAddress(),
-                                packet.getPort()));
+                                packet.getPort()));*/
 
                         if ("end".equals(received)) {
                             break;
